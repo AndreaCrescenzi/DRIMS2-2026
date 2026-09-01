@@ -4,13 +4,22 @@
 #include <vector>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2/exceptions.h>
+#include <tf2/LinearMath/Transform.h>
+#include <tf2/LinearMath/Vector3.h>
 
 #include "behaviortree_cpp/action_node.h"
 #include "behaviortree_cpp/bt_factory.h"
+#include <behaviortree_ros2/plugins.hpp>
+#include "behaviortree_ros2/ros_node_params.hpp"
 
 // Computes the horizontal (x,y) correction needed to bring the die back
-// over a fixed target point (typically the center of the delimited
-// placement zone), without touching orientation.
+// over a fixed target point (target_x/target_y, expressed in "base_link"
+// -- matching drims_dice_simulator's own spawn-bounds convention), without
+// touching orientation.
 //
 // Why this exists: after picking, lifting and rotating the die to expose a
 // different face, the die is no longer necessarily above where it was
@@ -22,15 +31,37 @@
 // rotate step left us at, computed from a fresh DiceIdentification call
 // after rotating.
 //
+// IMPORTANT: DiceIdentification reports current_pose in its own frame
+// (typically "world"), which is *not* the same origin as "base_link" (the
+// frame target_x/target_y are defined in). An earlier version of this node
+// subtracted target_x/y directly from current_pose's raw coordinates,
+// silently mixing the two frames -- the numbers looked plausible but the
+// die landed outside the actual delimited zone. This version explicitly
+// transforms current_pose into base_link first.
+//
 // Output is meant to feed a MoveToPose with relative_motion=true,
-// frame_id="base_link" (or "world"), orientation="0;0;0;1" (identity
-// delta -- keeps current orientation unchanged).
+// frame_id="base_link", orientation="0;0;0;1" (identity delta -- keeps
+// current orientation unchanged).
 class ComputeXYCorrection : public BT::SyncActionNode
 {
 public:
   ComputeXYCorrection(const std::string & name, const BT::NodeConfiguration & config)
   : BT::SyncActionNode(name, config)
-  {}
+  {
+    node_ = config.blackboard->get<std::shared_ptr<rclcpp::Node>>("node");
+    tf_buffer_ = std::make_shared<tf2_ros::Buffer>(node_->get_clock());
+    tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
+  }
+
+  ComputeXYCorrection(
+    const std::string & name,
+    const BT::NodeConfiguration & config,
+    const BT::RosNodeParams & params)
+  : BT::SyncActionNode(name, config), node_(params.nh)
+  {
+    tf_buffer_ = std::make_shared<tf2_ros::Buffer>(node_->get_clock());
+    tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
+  }
 
   static BT::PortsList providedPorts()
   {
@@ -57,11 +88,48 @@ public:
       throw BT::RuntimeError("Missing parameter [target_y]");
     }
 
-    const double dx = target_x - current_pose.pose.position.x;
-    const double dy = target_y - current_pose.pose.position.y;
+    geometry_msgs::msg::TransformStamped tf_to_base;
+    try {
+      tf_to_base = tf_buffer_->lookupTransform(
+        "base_link", current_pose.header.frame_id, tf2::TimePointZero);
+    } catch (const tf2::TransformException & ex) {
+      RCLCPP_WARN(
+        node_->get_logger(),
+        "ComputeXYCorrection: TF lookup base_link <- %s failed: %s",
+        current_pose.header.frame_id.c_str(), ex.what());
+      return BT::NodeStatus::FAILURE;
+    }
+
+    const tf2::Transform T(
+      tf2::Quaternion(
+        tf_to_base.transform.rotation.x, tf_to_base.transform.rotation.y,
+        tf_to_base.transform.rotation.z, tf_to_base.transform.rotation.w),
+      tf2::Vector3(
+        tf_to_base.transform.translation.x, tf_to_base.transform.translation.y,
+        tf_to_base.transform.translation.z));
+
+    const tf2::Vector3 p_in(
+      current_pose.pose.position.x, current_pose.pose.position.y,
+      current_pose.pose.position.z);
+    const tf2::Vector3 p_base = T * p_in;
+
+    const double dx = target_x - p_base.x();
+    const double dy = target_y - p_base.y();
+
+    RCLCPP_INFO(
+      node_->get_logger(),
+      "ComputeXYCorrection: current in base_link [%.3f, %.3f] (from %s), "
+      "target [%.3f, %.3f] -> correction [%.3f, %.3f]",
+      p_base.x(), p_base.y(), current_pose.header.frame_id.c_str(),
+      target_x, target_y, dx, dy);
 
     setOutput("xy_correction", std::vector<double>{dx, dy, 0.0});
 
     return BT::NodeStatus::SUCCESS;
   }
+
+private:
+  std::shared_ptr<rclcpp::Node> node_;
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
 };
