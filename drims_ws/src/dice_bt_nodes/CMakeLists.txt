@@ -36,6 +36,11 @@ add_library(compute_xy_correction SHARED
 )
 list(APPEND plugin_libs compute_xy_correction)
 
+add_library(get_grasp_orientation SHARED
+  src/get_grasp_orientation.cpp
+)
+list(APPEND plugin_libs get_grasp_orientation)
+
 foreach(bt_plugin ${plugin_libs})
   ament_target_dependencies(${bt_plugin} PUBLIC ${dependencies})
   target_compile_definitions(${bt_plugin} PRIVATE BT_PLUGIN_EXPORT)
