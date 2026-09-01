@@ -132,7 +132,7 @@ RUN chmod +x /home/$USER_NAME/setup_robot_connection.sh
 
 # Forgotten stuff
 RUN python3 -m pip install "numpy<2"
-RUN echo "source /home/drims/drims_ws/install/setup.bash" >> ~/.bashrc
+RUN echo "source /home/drims/drims_ws/install/setup.bash" >> /home/$USER_NAME/.bashrc
 RUN apt-get update && apt-get install -y ros-humble-rqt ros-humble-rqt-tf-tree
 
 # Final setup
