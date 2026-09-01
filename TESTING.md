@@ -41,6 +41,29 @@ ros2 launch drims_homework demo_behavior_tree_start.launch.py
 
 Output atteso: `Moving to home configuration...`, poi `Home reached: 1`, poi la posa del dado letta correttamente, poi `Moving to pick pose...`. Se qui compare `Package 'drims_homework' not found`, il workspace utente non è sorgentato in questa shell — vedi la nota sotto.
 
+## Terminale 3 (bis) — Test del vero albero BT con GetFaceRotation/ComputeXYCorrection
+
+Alternativa al punto precedente, per verificare la pipeline completa (presa, selezione della rotazione minima, correzione della posizione di rilascio) attraverso i nodi C++ custom in `dice_bt_nodes`:
+
+```bash
+sh connect.sh
+source ~/drims_ws/install/setup.bash
+ros2 run easy_motion_behavior_tree bt_executer_node --ros-args \
+  -p ros_plugins:="['dice_identification','move_to_pose','move_to_joint','gripper_command','attach_object','detach_object','get_face_rotation','compute_xy_correction']" \
+  -p bt_package:=drims_homework \
+  -p bt_xml_file:=_test_bt_move.xml
+```
+
+Output atteso: `MoveToJoint Result: 1` (home), poi `MoveToPose Result: 1` (presa), `GetFaceRotation: 5 -> 3 => minimal angle 90.0 deg` (o l'angolo minimo corretto per la coppia di facce scelta), due `MoveToPose Result: 1` (sollevamento + rotazione), `ComputeXYCorrection: ... -> correction [...]` (piccola, pochi cm), un ultimo `MoveToPose Result: 1` (correzione posizione), e infine `DetachObject service responce received`.
+
+Il target è fissato nel file (`target_face="3"`), da editare a mano nell'XML per provare altre facce. Evitare per ora le coppie di facce opposte (es. 5↔2, 1↔6, 3↔4): richiedono un flip di 180° che ha già bloccato `motion_server` una volta, va gestito diversamente (vedi memoria `drims2-challenge-status`).
+
+Per riprovare senza rilanciare tutto da capo, se il dado finisce in una posizione/stato strano:
+
+```bash
+ros2 service call /reset_dice std_srvs/srv/Trigger "{}"
+```
+
 ## Controlli incrociati (in un quarto terminale)
 
 ```bash
