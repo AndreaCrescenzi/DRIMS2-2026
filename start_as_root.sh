@@ -25,5 +25,7 @@ else
     echo "Container $CONTAINER_NAME does not exist."
 fi
 
-docker run -it --privileged -v /dev:/dev --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --net=host --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" --volume="$(pwd)/drims_ws:/home/drims/drims_ws" --volume="$(pwd)/bags:/home/drims/bags" --name drims2 -w /home/drims $IMAGE_NAME
+FIX_BASHRC='grep -q "drims_ws/install/setup.bash" /home/drims/.bashrc || echo "source /home/drims/drims_ws/install/setup.bash" >> /home/drims/.bashrc'
+
+docker run -it --privileged -v /dev:/dev --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --net=host --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" --volume="$(pwd)/drims_ws:/home/drims/drims_ws" --volume="$(pwd)/bags:/home/drims/bags" --name drims2 -w /home/drims $IMAGE_NAME bash -c "$FIX_BASHRC; exec bash"
 
