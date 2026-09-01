@@ -31,6 +31,11 @@ add_library(get_face_rotation SHARED
 )
 list(APPEND plugin_libs get_face_rotation)
 
+add_library(compute_xy_correction SHARED
+  src/compute_xy_correction.cpp
+)
+list(APPEND plugin_libs compute_xy_correction)
+
 foreach(bt_plugin ${plugin_libs})
   ament_target_dependencies(${bt_plugin} PUBLIC ${dependencies})
   target_compile_definitions(${bt_plugin} PRIVATE BT_PLUGIN_EXPORT)
