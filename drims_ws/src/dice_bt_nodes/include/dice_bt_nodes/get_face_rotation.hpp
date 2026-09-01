@@ -59,6 +59,11 @@ public:
       BT::InputPort<int>("current_face"),
       BT::InputPort<int>("target_face"),
       BT::OutputPort<std::vector<double>>("orientation"),
+      // The frame_id that MoveToPose's relative_motion=true call must use
+      // together with `orientation` above (BT.CPP XML can't build
+      // "face{face}_tf" via string interpolation, only whole-value
+      // blackboard substitution, hence this port instead of a template).
+      BT::OutputPort<std::string>("ref_frame"),
     };
   }
 
@@ -96,6 +101,7 @@ public:
       "GetFaceRotation: %d -> %d => orientation [%.3f, %.3f, %.3f, %.3f]",
       current_face, target_face, q.x, q.y, q.z, q.w);
     setOutput("orientation", std::vector<double>{q.x, q.y, q.z, q.w});
+    setOutput("ref_frame", current_frame);
 
     return BT::NodeStatus::SUCCESS;
   }
