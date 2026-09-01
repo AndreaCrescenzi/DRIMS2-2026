@@ -41,6 +41,11 @@ add_library(get_grasp_orientation SHARED
 )
 list(APPEND plugin_libs get_grasp_orientation)
 
+add_library(plan_rotation_path SHARED
+  src/plan_rotation_path.cpp
+)
+list(APPEND plugin_libs plan_rotation_path)
+
 foreach(bt_plugin ${plugin_libs})
   ament_target_dependencies(${bt_plugin} PUBLIC ${dependencies})
   target_compile_definitions(${bt_plugin} PRIVATE BT_PLUGIN_EXPORT)

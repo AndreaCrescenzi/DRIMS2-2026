@@ -25,7 +25,7 @@ MAX_ATTEMPTS="${2:-2}"
 CONTAINER_NAME="drims2"
 
 ROS_PLUGINS="['dice_identification','move_to_pose','move_to_joint','gripper_command','attach_object','detach_object','get_face_rotation','compute_xy_correction']"
-PLUGINS="['get_grasp_orientation']"
+PLUGINS="['get_grasp_orientation','plan_rotation_path']"
 
 run_tree() {
     docker exec -i "$CONTAINER_NAME" bash -ic "
@@ -36,6 +36,7 @@ run_tree() {
             -p bt_package:=drims_homework \
             -p bt_xml_file:=$BT_FILE
     " 2>&1
+    echo "RUN_BT_EXIT_CODE:$?"
 }
 
 restart_robot_stack() {
@@ -72,11 +73,24 @@ attempt=1
 while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
     echo "[run_bt] Attempt $attempt/$MAX_ATTEMPTS: running $BT_FILE"
     output="$(run_tree)"
+    exit_code="$(echo "$output" | grep -o 'RUN_BT_EXIT_CODE:[0-9]*' | tail -1 | cut -d: -f2)"
+    output="$(echo "$output" | grep -v '^RUN_BT_EXIT_CODE:')"
     echo "$output"
 
-    if ! echo "$output" | grep -q "\[ERROR\]"; then
+    if [ "$exit_code" = "0" ] && ! echo "$output" | grep -q "\[ERROR\]"; then
         echo "[run_bt] Tree completed with no errors."
         exit 0
+    fi
+
+    if echo "$output" | grep -q "Failed to find a free participant index"; then
+        echo "[run_bt] CycloneDDS has run out of participant slots for this domain (too many short-lived ros2 processes across the session)."
+        echo "[run_bt] This needs a FULL container restart (sh start.sh on the host), not just the robot stack -- giving up."
+        exit 2
+    fi
+
+    if echo "$output" | grep -qE "terminate called|Segmentation fault"; then
+        echo "[run_bt] Process crashed (not a robot wedge -- likely a bug in the tree XML or a node). Not restarting the robot stack; fix the tree/code first."
+        exit 1
     fi
 
     if echo "$output" | grep -q "SEND_GOAL_TIMEOUT"; then
