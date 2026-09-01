@@ -64,6 +64,30 @@ Per riprovare senza rilanciare tutto da capo, se il dado finisce in una posizion
 ros2 service call /reset_dice std_srvs/srv/Trigger "{}"
 ```
 
+## Uso di `run_bt.sh`: eseguire un albero con recupero automatico
+
+Dalla root del repo sull'host (non dentro il container):
+
+```bash
+sh run_bt.sh <nome_albero.xml> [tentativi_massimi]
+# es.
+sh run_bt.sh _test_bt_move.xml
+sh run_bt.sh _test_bt_flip180_twocycle.xml 3
+```
+
+Lancia l'albero dentro il container (stessa lista `ros_plugins`/`plugins`
+del test manuale sopra). Se rileva la firma di un blocco reale del server
+(`SEND_GOAL_TIMEOUT`) — dovuto a un bug noto in `pymoveit2` (vedi
+`drims2-known-issues`), non nostro — riavvia da solo l'intero stack del
+robot (`motion_server`, `move_group`, RViz) e riprova, senza bisogno di
+intervento manuale su terminale 1. Un fallimento genuino (es. vero
+`NO_IK_SOLUTION` dopo i tentativi) **non** causa un riavvio, viene solo
+segnalato.
+
+Non gestisce ancora l'esaurimento dei participant DDS (`Failed to find a
+free participant index for domain 0`) — quello richiede un riavvio
+completo del container (`sh start.sh`), non solo dello stack robot.
+
 ## Controlli incrociati (in un quarto terminale)
 
 ```bash
