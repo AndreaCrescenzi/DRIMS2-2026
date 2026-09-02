@@ -69,6 +69,8 @@ public:
       BT::InputPort<geometry_msgs::msg::PoseStamped>("current_pose"),
       BT::InputPort<double>("target_x"),
       BT::InputPort<double>("target_y"),
+      BT::InputPort<double>("target_z"),
+      BT::InputPort<double>("z_offset"),
       BT::OutputPort<std::vector<double>>("xy_correction"),
     };
   }
@@ -87,6 +89,24 @@ public:
     if (!getInput("target_y", target_y)) {
       throw BT::RuntimeError("Missing parameter [target_y]");
     }
+    // Optional: when provided, also corrects height down to a known
+    // resting z instead of leaving it at 0.0 (unchanged). Exists because
+    // mirroring each intermediate lift with a matching descent (lift
+    // before relocating away from an obstacle, lift again for the
+    // rotation escalation, ...) drifts and is easy to under/over-count --
+    // correcting straight to a known-good absolute height, the same way
+    // target_x/target_y already do, is far more robust than bookkeeping
+    // every relative delta by hand.
+    double target_z = 0.0;
+    const bool has_target_z = getInput("target_z", target_z).has_value();
+    // Optional, mutually exclusive with target_z: a fixed RELATIVE z
+    // delta instead of an absolute target -- for combining "translate
+    // toward a target XY" with "lift by a fixed clearance amount" into a
+    // single move (e.g. clearing the table while relocating away from an
+    // obstacle), where there's no meaningful absolute height to aim for,
+    // just "current height plus a margin".
+    double z_offset = 0.0;
+    getInput("z_offset", z_offset);
 
     geometry_msgs::msg::TransformStamped tf_to_base;
     try {
@@ -115,15 +135,16 @@ public:
 
     const double dx = target_x - p_base.x();
     const double dy = target_y - p_base.y();
+    const double dz = has_target_z ? (target_z - p_base.z()) : z_offset;
 
     RCLCPP_INFO(
       node_->get_logger(),
-      "ComputeXYCorrection: current in base_link [%.3f, %.3f] (from %s), "
-      "target [%.3f, %.3f] -> correction [%.3f, %.3f]",
-      p_base.x(), p_base.y(), current_pose.header.frame_id.c_str(),
-      target_x, target_y, dx, dy);
+      "ComputeXYCorrection: current in base_link [%.3f, %.3f, %.3f] (from "
+      "%s), target [%.3f, %.3f, %.3f] -> correction [%.3f, %.3f, %.3f]",
+      p_base.x(), p_base.y(), p_base.z(), current_pose.header.frame_id.c_str(),
+      target_x, target_y, has_target_z ? target_z : p_base.z(), dx, dy, dz);
 
-    setOutput("xy_correction", std::vector<double>{dx, dy, 0.0});
+    setOutput("xy_correction", std::vector<double>{dx, dy, dz});
 
     return BT::NodeStatus::SUCCESS;
   }

@@ -30,7 +30,7 @@ PLUGINS="['get_grasp_orientation','plan_rotation_path']"
 run_tree() {
     docker exec -i "$CONTAINER_NAME" bash -ic "
         source ~/drims_ws/install/setup.bash
-        timeout 90 ros2 run easy_motion_behavior_tree bt_executer_node --ros-args \
+        timeout 220 ros2 run easy_motion_behavior_tree bt_executer_node --ros-args \
             -p ros_plugins:=\"$ROS_PLUGINS\" \
             -p plugins:=\"$PLUGINS\" \
             -p bt_package:=drims_homework \
@@ -57,6 +57,23 @@ restart_robot_stack() {
         sleep 2
         if docker exec "$CONTAINER_NAME" bash -c "pgrep -f moveit_ros_move_group" > /dev/null 2>&1; then
             echo "[run_bt] move_group is up."
+            break
+        fi
+    done
+    # move_group being alive doesn't mean controllers/action servers are
+    # already serving -- seen in practice: bt_executor_node starts, spends
+    # ~100s retrying the gripper action client, then the first MoveToJoint
+    # gets ACTION_ABORTED because the stack genuinely wasn't ready yet.
+    # Wait for the gripper action server specifically before declaring the
+    # stack ready.
+    echo "[run_bt] Waiting for the gripper action server..."
+    for _ in $(seq 1 30); do
+        sleep 2
+        if docker exec -i "$CONTAINER_NAME" bash -ic "
+            source ~/drims_ws/install/setup.bash
+            timeout 5 ros2 action list
+        " 2>/dev/null | grep -q "/gripper_action_controller/gripper_cmd"; then
+            echo "[run_bt] gripper action server is up."
             break
         fi
     done
