@@ -41,9 +41,41 @@ ros2 launch drims_homework demo_behavior_tree_start.launch.py
 
 Output atteso: `Moving to home configuration...`, poi `Home reached: 1`, poi la posa del dado letta correttamente, poi `Moving to pick pose...`. Se qui compare `Package 'drims_homework' not found`, il workspace utente non è sorgentato in questa shell — vedi la nota sotto.
 
-## Terminale 3 (bis) — Test del vero albero BT con GetFaceRotation/ComputeXYCorrection
+## Terminale 3 (bis) — Lanciare la challenge vera con `dice_mission.launch.py`
 
-Alternativa al punto precedente, per verificare la pipeline completa (presa, selezione della rotazione minima, correzione della posizione di rilascio) attraverso i nodi C++ custom in `dice_bt_nodes`:
+Questo è il modo giusto per lanciare l'albero consolidato della challenge (`dice_challenge.xml`, in `drims_homework`), con la faccia target scelta da riga di comando invece che editando l'XML a mano:
+
+```bash
+sh connect.sh
+source ~/drims_ws/install/setup.bash
+ros2 launch drims_homework dice_mission.launch.py target_face:=3
+```
+
+Cambiare `3` con la faccia desiderata (1-6). Il launch file riscrive automaticamente la riga `<Script code="target_face:=N"/>` nella copia installata di `dice_challenge.xml` prima di avviare `bt_executer_node` (non tocca mai il sorgente nel repo), e usa già la lista giusta di plugin tramite `config/dice_challenge_config.yaml` — non serve passare `-p ros_plugins:=...`/`-p plugins:=...` a mano.
+
+Anche il punto di piazzamento finale (in `base_link`) è configurabile da riga di comando, con `place_x`/`place_y`/`place_z` (default `0.45`/`0.1`/`0.027`, verificati liberi dalla barra porta-telecamera della cella):
+
+```bash
+ros2 launch drims_homework dice_mission.launch.py target_face:=3 place_x:=0.5 place_y:=0.0 place_z:=0.03
+```
+
+`place_x`/`place_y` aggiornano sia il piazzamento finale sia il punto di ritrovo pre-rotazione (deliberatamente lo stesso punto, vedi i commenti in `dice_challenge.xml`) — cambiarli significa spostare entrambi insieme. `place_z` aggiorna solo l'altezza di rilascio finale. Attenzione: valori diversi da quelli di default non sono stati verificati liberi dalla barra — se la rotazione inizia a fallire dopo aver cambiato `place_x`/`place_y`, è probabile che il nuovo punto sia sotto l'ostacolo.
+
+`dice_challenge.xml` gestisce già sia le rotazioni adiacenti (un solo ciclo presa-ruota-posa) sia le facce opposte (due cicli concatenati via una faccia intermedia, es. 1↔6, 2↔5, 3↔4) — non è più necessario evitarle. Include inoltre diversi livelli di fallback automatici (presa con angolo di avvicinamento diverso, instradamento tramite una faccia di passaggio) per i casi in cui la rotazione diretta risulti cinematicamente bloccata da un ostacolo reale della cella (la barra porta-telecamera sopra il tavolo — vedi il commento in testa a `dice_challenge.xml` per i dettagli).
+
+Output atteso: `MoveToJoint Result: 1` (home), `Face number: N` (identificazione), `GetFaceRotation: N -> M => minimal angle ... deg`, i movimenti di presa/spostamento/rotazione (`MoveToPose Result: 1` ripetuti), `ComputeXYCorrection: ... -> correction [...]` per il piazzamento finale, e infine `DetachObject service responce received` seguito da `Tree completed with no errors`.
+
+Per riprovare senza rilanciare tutto da capo, se il dado finisce in una posizione/stato strano:
+
+```bash
+ros2 service call /reset_dice std_srvs/srv/Trigger "{}"
+```
+
+Nota: `/reset_dice` ha un bug noto (race condition TF) che a volte, dopo il reset, riporta una faccia diversa da quella impostata al momento dello spawn — se serve una faccia precisa e sicura, meglio uccidere il processo `dice_spawner` (`pkill -f dice_spawner`) e rilanciare `spawn_dice.launch.py` da capo con il `face_up` voluto, piuttosto che fidarsi di `/reset_dice`.
+
+### Variante storica: `_test_bt_move.xml` con `ros2 run` manuale
+
+Prima che esistesse il launch file sopra, l'albero si lanciava così, con il target fissato a mano nel file XML (non più necessario, tenuto solo come riferimento):
 
 ```bash
 sh connect.sh
@@ -52,16 +84,6 @@ ros2 run easy_motion_behavior_tree bt_executer_node --ros-args \
   -p ros_plugins:="['dice_identification','move_to_pose','move_to_joint','gripper_command','attach_object','detach_object','get_face_rotation','compute_xy_correction']" \
   -p bt_package:=drims_homework \
   -p bt_xml_file:=_test_bt_move.xml
-```
-
-Output atteso: `MoveToJoint Result: 1` (home), poi `MoveToPose Result: 1` (presa), `GetFaceRotation: 5 -> 3 => minimal angle 90.0 deg` (o l'angolo minimo corretto per la coppia di facce scelta), due `MoveToPose Result: 1` (sollevamento + rotazione), `ComputeXYCorrection: ... -> correction [...]` (piccola, pochi cm), un ultimo `MoveToPose Result: 1` (correzione posizione), e infine `DetachObject service responce received`.
-
-Il target è fissato nel file (`target_face="3"`), da editare a mano nell'XML per provare altre facce. Evitare per ora le coppie di facce opposte (es. 5↔2, 1↔6, 3↔4): richiedono un flip di 180° che ha già bloccato `motion_server` una volta, va gestito diversamente (vedi memoria `drims2-challenge-status`).
-
-Per riprovare senza rilanciare tutto da capo, se il dado finisce in una posizione/stato strano:
-
-```bash
-ros2 service call /reset_dice std_srvs/srv/Trigger "{}"
 ```
 
 ## Uso di `run_bt.sh`: eseguire un albero con recupero automatico
@@ -87,6 +109,15 @@ segnalato.
 Non gestisce ancora l'esaurimento dei participant DDS (`Failed to find a
 free participant index for domain 0`) — quello richiede un riavvio
 completo del container (`sh start.sh`), non solo dello stack robot.
+
+Per `dice_challenge.xml`, `run_bt.sh` non accetta ancora `target_face`
+da riga di comando come `dice_mission.launch.py` (vedi sopra) — lancia
+l'albero così com'è installato al momento. Per scegliere la faccia e
+avere comunque il recupero automatico dai blocchi, aggiornare prima il
+file con `ros2 launch drims_homework dice_mission.launch.py
+target_face:=N` (che riscrive la copia installata e poi esegue), oppure
+lanciare `sh run_bt.sh dice_challenge.xml` subito dopo, prima che un
+altro `colcon build` sovrascriva la modifica.
 
 ## Controlli incrociati (in un quarto terminale)
 

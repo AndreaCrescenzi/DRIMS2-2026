@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <string>
 #include <utility>
 #include <vector>
@@ -83,6 +84,7 @@ public:
       BT::InputPort<bool>("flip_grasp"),
       BT::InputPort<double>("tilt_deg"),
       BT::InputPort<std::vector<double>>("rotation_quat"),
+      BT::InputPort<double>("yaw_offset_deg"),
       BT::OutputPort<std::vector<double>>("pick_orientation"),
       BT::OutputPort<int>("grasp_yaw_deg"),
     };
@@ -132,6 +134,21 @@ public:
     if (flip_grasp) {
       yaw_deg = (yaw_deg + 180) % 360;
     }
+    // Experimental/diagnostic: an explicit extra yaw rotation on top of
+    // everything above, independent of flip_grasp (180) and tilt_deg.
+    // Exists to test, on the real robot/sim, whether a specific
+    // current_face/target_face pair needs a 90deg-rotated approach when
+    // tilt is combined with it -- observed at least once (3->2) that the
+    // tilt can bring a finger physically onto target_face's surface even
+    // though the *untilted* pinch pair correctly avoids it (see
+    // dice_challenge.xml's history). Not yet understood well enough to
+    // derive automatically -- pass explicitly per case until it is.
+    double yaw_offset_deg = 0.0;
+    getInput("yaw_offset_deg", yaw_offset_deg);
+    if (yaw_offset_deg != 0.0) {
+      yaw_deg = static_cast<int>(
+        std::lround(yaw_deg + yaw_offset_deg)) % 360;
+    }
 
     // Same fixed "point straight down" pick orientation used throughout
     // (see demo_node.py / dice_reorient_node.py's BASE_PICK_ORIENTATION),
@@ -164,22 +181,53 @@ private:
 
   static int oppositeFace(int face) {return 7 - face;}
 
+  // Which face pair does yaw=0 vs yaw=90 actually pinch? Derived from
+  // dice_spawner.py's get_quaternion_from_normal (the rotation that
+  // defines each face{N}_tf, and therefore "dice_tf" = face{current}_tf,
+  // relative to dice_com_tf, the die's own fixed body frame where
+  // FACE_NORMALS is defined: 1<->-Z, 6<->+Z, 2<->-X, 5<->+X, 3<->+Y,
+  // 4<->-Y). yaw=0's closing axis is always dice_tf's own local X (the
+  // axis BASE_PICK_ORIENTATION's flip leaves unchanged -- see tilt_deg's
+  // comment); expressing that axis in dice_com_tf terms for each of the
+  // 6 possible current_face values (by applying get_quaternion_from_
+  // normal's actual rotation, not assuming a fixed relationship) gives:
+  // yaw=0 pinches the {2,5} (local X) pair EXCEPT when current_face
+  // itself is 2 or 5 (own axis, can't pinch it), in which case yaw=0
+  // pinches {1,6} (local Z) instead. This is NOT the same as "whichever
+  // pair comes first in a fixed table order after excluding current's
+  // own axis" -- a previous version of this function assumed that,
+  // which happens to agree with the derivation below for current_face
+  // in {1,2,5,6} but is swapped (yaw=0 and yaw=90 reversed) for
+  // current_face in {3,4} -- get_quaternion_from_normal's minimal-
+  // rotation construction doesn't preserve a consistent axis labeling
+  // across all 6 faces, only verified/assumed to for four of them.
+  // Confirmed against real behavior: current_face=3 with the old
+  // (wrong) mapping put a finger on the target face after rotating,
+  // even though the *intended* pinch pair correctly excluded it -- the
+  // grasp was pinching the pair the code THOUGHT it was avoiding.
   static std::array<FacePair, 2> sideFacePairs(int current_face)
   {
-    static const std::array<FacePair, 3> kAxisPairs = {{{1, 6}, {2, 5}, {3, 4}}};
-    const int opp = oppositeFace(current_face);
+    static const FacePair kXPair = {2, 5};
+    static const FacePair kYPair = {3, 4};
+    static const FacePair kZPair = {1, 6};
 
-    std::array<FacePair, 2> sides;
-    std::size_t idx = 0;
-    for (const auto & pair : kAxisPairs) {
+    const bool current_on_x_axis = (current_face == 2 || current_face == 5);
+    const FacePair pinched_at_yaw0 = current_on_x_axis ? kZPair : kXPair;
+
+    const int opp = oppositeFace(current_face);
+    FacePair pinched_at_yaw90 = kYPair;  // overwritten below unless current is on Y axis
+    for (const auto & pair : {kXPair, kYPair, kZPair}) {
       const bool is_own_axis =
         (pair.first == current_face && pair.second == opp) ||
         (pair.first == opp && pair.second == current_face);
-      if (!is_own_axis) {
-        sides[idx++] = pair;
+      const bool is_yaw0_pair =
+        (pair.first == pinched_at_yaw0.first && pair.second == pinched_at_yaw0.second);
+      if (!is_own_axis && !is_yaw0_pair) {
+        pinched_at_yaw90 = pair;
+        break;
       }
     }
-    return sides;
+    return {pinched_at_yaw0, pinched_at_yaw90};
   }
 
   static bool contains(const FacePair & pair, int face)
