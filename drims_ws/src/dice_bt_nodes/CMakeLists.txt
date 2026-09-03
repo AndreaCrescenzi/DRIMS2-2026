@@ -46,6 +46,16 @@ add_library(plan_rotation_path SHARED
 )
 list(APPEND plugin_libs plan_rotation_path)
 
+add_library(resolve_ambiguous_face SHARED
+  src/resolve_ambiguous_face.cpp
+)
+list(APPEND plugin_libs resolve_ambiguous_face)
+
+add_library(check_closing_axis_vertical SHARED
+  src/check_closing_axis_vertical.cpp
+)
+list(APPEND plugin_libs check_closing_axis_vertical)
+
 foreach(bt_plugin ${plugin_libs})
   ament_target_dependencies(${bt_plugin} PUBLIC ${dependencies})
   target_compile_definitions(${bt_plugin} PRIVATE BT_PLUGIN_EXPORT)

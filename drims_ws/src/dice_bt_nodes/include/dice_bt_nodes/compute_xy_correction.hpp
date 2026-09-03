@@ -18,8 +18,25 @@
 
 // Computes the horizontal (x,y) correction needed to bring the die back
 // over a fixed target point (target_x/target_y, expressed in "base_link"
-// -- matching drims_dice_simulator's own spawn-bounds convention), without
+// by default -- matching drims_dice_simulator's own spawn-bounds
+// convention -- or in whatever frame "target_frame" names), without
 // touching orientation.
+//
+// "target_frame" (optional, default "base_link"): lets the target point be
+// specified in a frame that stays fixed regardless of how the robot base
+// is mounted on the table -- e.g. "camera_frame_floor", which (verified in
+// ur5e_cell.urdf.xacro) hangs off "table_top", not "base_link", so it does
+// NOT move when a cell's base_link mounting angle changes. Passing raw
+// target_x/target_y straight through as base_link numbers only works for
+// the one specific base_link orientation they were tuned for -- expressing
+// them in a table-anchored frame instead makes the mission's placement
+// target genuinely independent of that.
+//
+// "target_frame" only affects target_x/target_y. target_z (when given)
+// always stays a plain base_link height, regardless of target_frame --
+// the die's resting height above the table is a base_link/vertical fact,
+// not something that should shift depending on which XY frame the safe
+// zone happens to be expressed in.
 //
 // Why this exists: after picking, lifting and rotating the die to expose a
 // different face, the die is no longer necessarily above where it was
@@ -71,6 +88,7 @@ public:
       BT::InputPort<double>("target_y"),
       BT::InputPort<double>("target_z"),
       BT::InputPort<double>("z_offset"),
+      BT::InputPort<std::string>("target_frame"),
       BT::OutputPort<std::vector<double>>("xy_correction"),
     };
   }
@@ -107,6 +125,49 @@ public:
     // just "current height plus a margin".
     double z_offset = 0.0;
     getInput("z_offset", z_offset);
+
+    std::string target_frame = "base_link";
+    getInput("target_frame", target_frame);  // optional, defaults to base_link
+
+    if (target_frame != "base_link") {
+      geometry_msgs::msg::TransformStamped tf_target_to_base;
+      try {
+        tf_target_to_base = tf_buffer_->lookupTransform(
+          "base_link", target_frame, tf2::TimePointZero);
+      } catch (const tf2::TransformException & ex) {
+        RCLCPP_WARN(
+          node_->get_logger(),
+          "ComputeXYCorrection: TF lookup base_link <- %s (target_frame) failed: %s",
+          target_frame.c_str(), ex.what());
+        return BT::NodeStatus::FAILURE;
+      }
+      const tf2::Transform T_target(
+        tf2::Quaternion(
+          tf_target_to_base.transform.rotation.x, tf_target_to_base.transform.rotation.y,
+          tf_target_to_base.transform.rotation.z, tf_target_to_base.transform.rotation.w),
+        tf2::Vector3(
+          tf_target_to_base.transform.translation.x, tf_target_to_base.transform.translation.y,
+          tf_target_to_base.transform.translation.z));
+      // Only X/Y go through target_frame -- target_z (when given) stays a
+      // plain base_link height regardless, since "how high above the
+      // table" is a base_link/vertical fact independent of which XY
+      // frame the safe zone is expressed in. Transforming Z too (an
+      // earlier version of this did) silently shifted target_z by
+      // target_frame's own Z offset from base_link (e.g.
+      // camera_frame_floor sits ~0.05m below base_link's origin here),
+      // sending the die's target resting height under the table and
+      // making the final descend fail. Point transformed at local Z=0
+      // (its own frame's floor height, not target_z) -- only .x()/.y()
+      // of the result are used, .z() is discarded on purpose.
+      const tf2::Vector3 target_in(target_x, target_y, 0.0);
+      const tf2::Vector3 target_base = T_target * target_in;
+      RCLCPP_INFO(
+        node_->get_logger(),
+        "ComputeXYCorrection: target [%.3f, %.3f] in %s -> [%.3f, %.3f] in base_link (z stays as given, in base_link)",
+        target_x, target_y, target_frame.c_str(), target_base.x(), target_base.y());
+      target_x = target_base.x();
+      target_y = target_base.y();
+    }
 
     geometry_msgs::msg::TransformStamped tf_to_base;
     try {
