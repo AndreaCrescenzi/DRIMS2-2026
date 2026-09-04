@@ -24,8 +24,8 @@ BT_FILE="${1:?Usage: sh run_bt.sh <bt_xml_file> [max_attempts]}"
 MAX_ATTEMPTS="${2:-2}"
 CONTAINER_NAME="drims2"
 
-ROS_PLUGINS="['dice_identification','move_to_pose','move_to_joint','gripper_command','attach_object','detach_object','get_face_rotation','compute_xy_correction','check_closing_axis_vertical']"
-PLUGINS="['get_grasp_orientation','plan_rotation_path','resolve_ambiguous_face']"
+ROS_PLUGINS="['dice_identification','move_to_pose','move_to_joint','gripper_command','attach_object','detach_object','get_face_rotation','compute_xy_correction','check_closing_axis_vertical','get_world_grasp_orientation','select_tip_axis']"
+PLUGINS="['get_grasp_orientation','plan_rotation_path','resolve_die_orientation','compute_canonical_placement','get_tip_rotation']"
 
 run_tree() {
     docker exec -i "$CONTAINER_NAME" bash -ic "

@@ -46,10 +46,30 @@ add_library(plan_rotation_path SHARED
 )
 list(APPEND plugin_libs plan_rotation_path)
 
-add_library(resolve_ambiguous_face SHARED
-  src/resolve_ambiguous_face.cpp
+add_library(resolve_die_orientation SHARED
+  src/resolve_die_orientation.cpp
 )
-list(APPEND plugin_libs resolve_ambiguous_face)
+list(APPEND plugin_libs resolve_die_orientation)
+
+add_library(compute_canonical_placement SHARED
+  src/compute_canonical_placement.cpp
+)
+list(APPEND plugin_libs compute_canonical_placement)
+
+add_library(get_tip_rotation SHARED
+  src/get_tip_rotation.cpp
+)
+list(APPEND plugin_libs get_tip_rotation)
+
+add_library(get_world_grasp_orientation SHARED
+  src/get_world_grasp_orientation.cpp
+)
+list(APPEND plugin_libs get_world_grasp_orientation)
+
+add_library(select_tip_axis SHARED
+  src/select_tip_axis.cpp
+)
+list(APPEND plugin_libs select_tip_axis)
 
 add_library(check_closing_axis_vertical SHARED
   src/check_closing_axis_vertical.cpp
