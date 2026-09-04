@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -44,6 +45,14 @@ public:
       // the placement rotation that follows -- rotating straight out of
       // the tipped pose was observed to hit NO_IK_SOLUTION.
       BT::OutputPort<std::vector<double>>("inverse_orientation"),
+      // The same rotations halved (45deg). Commanding the tip as two
+      // Cartesian 45deg steps instead of one joint-space 90deg keeps the
+      // grasp point still and just turns the wrist in place, instead of
+      // letting the sampling planner swing the whole arm around -- smaller,
+      // calmer and safer motion for the same result. A single 90deg step
+      // does not survive straight-line interpolation; two 45deg ones do.
+      BT::OutputPort<std::vector<double>>("half_orientation"),
+      BT::OutputPort<std::vector<double>>("half_inverse_orientation"),
     };
   }
 
@@ -66,23 +75,30 @@ public:
               "' -- expected one of world_X+, world_X-, world_Y+, world_Y-");
     }
 
-    // 90deg about the named world axis. sqrt(0.5) written out to match the
-    // literals the derivation script printed.
-    constexpr double kS = 0.7071067811865476;
-    std::vector<double> q;
+    // 90deg about the named world axis, plus the 45deg half-step.
+    constexpr double kS = 0.7071067811865476;              // sin/cos of 45deg
+    const double kHs = std::sin(M_PI / 8.0);               // sin of 22.5deg
+    const double kHc = std::cos(M_PI / 8.0);
+    std::vector<double> q, qh;
     if (axis == "world_X+") {
       q = {kS, 0.0, 0.0, kS};
+      qh = {kHs, 0.0, 0.0, kHc};
     } else if (axis == "world_X-") {
       q = {-kS, 0.0, 0.0, kS};
+      qh = {-kHs, 0.0, 0.0, kHc};
     } else if (axis == "world_Y+") {
       q = {0.0, kS, 0.0, kS};
+      qh = {0.0, kHs, 0.0, kHc};
     } else {
       q = {0.0, -kS, 0.0, kS};
+      qh = {0.0, -kHs, 0.0, kHc};
     }
 
     setOutput("orientation", q);
     // Inverse of a unit quaternion: negate the vector part.
     setOutput("inverse_orientation", std::vector<double>{-q[0], -q[1], -q[2], q[3]});
+    setOutput("half_orientation", qh);
+    setOutput("half_inverse_orientation", std::vector<double>{-qh[0], -qh[1], -qh[2], qh[3]});
     return BT::NodeStatus::SUCCESS;
   }
 };

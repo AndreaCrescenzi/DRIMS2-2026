@@ -74,6 +74,14 @@ public:
       BT::OutputPort<std::vector<double>>("orientation"),
       // Which face ends up up once placed -- lets the tree log/verify it.
       BT::OutputPort<int>("placed_face"),
+      // The same rotation halved, so the tree can command it as two
+      // Cartesian half-steps instead of one joint-space move. A Cartesian
+      // rotation turns the wrist in place and leaves the grasp point where
+      // it is; a joint-space one lets the sampling planner swing the whole
+      // arm around to reach the same orientation, which looks alarming and
+      // sweeps a lot of space. Rotations here reach 120deg, too much for a
+      // single straight-line step, but fine in two.
+      BT::OutputPort<std::vector<double>>("half_orientation"),
     };
   }
 
@@ -145,6 +153,18 @@ public:
     setOutput(
       "orientation",
       std::vector<double>{best_delta.x(), best_delta.y(), best_delta.z(), best_delta.w()});
+    // Halve the chosen rotation along the shortest path: averaging with
+    // the identity and renormalising gives exactly half the angle about
+    // the same axis.
+    tf2::Quaternion d = best_delta;
+    if (d.w() < 0.0) {
+      d = tf2::Quaternion(-d.x(), -d.y(), -d.z(), -d.w());  // shortest path
+    }
+    const tf2::Quaternion half =
+      tf2::Quaternion(d.x(), d.y(), d.z(), d.w() + 1.0).normalized();
+    setOutput(
+      "half_orientation",
+      std::vector<double>{half.x(), half.y(), half.z(), half.w()});
     setOutput("placed_face", best_face);
     return BT::NodeStatus::SUCCESS;
   }
