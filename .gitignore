@@ -7,3 +7,8 @@ docker/abb_librws_2.0
 docker/abb_omnicore_ros2
 drims_ws/src/solutions/
 bags/
+
+# Core dump lasciato da un crash dentro il container (centinaia di MB).
+core
+*.core
+core.*
