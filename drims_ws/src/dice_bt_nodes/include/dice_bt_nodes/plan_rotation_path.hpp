@@ -6,29 +6,10 @@
 #include "behaviortree_cpp/action_node.h"
 #include "behaviortree_cpp/bt_factory.h"
 
-// Decides how many pick-rotate-place cycles are needed to bring
-// target_face up, and which face(s) to pass through.
-//
-// - current_face == target_face            -> num_steps = 0
-// - target_face == 7 - current_face (opp.) -> num_steps = 2, with a valid
-//   intermediate side face (any side face works; deterministic pick: 1,
-//   unless current_face is already on the (1,6) axis, then 2 -- both are
-//   always guaranteed to differ from both current_face and target_face)
-// - otherwise (adjacent)                    -> num_steps = 1
-//
-// Also always computes detour_face: a face adjacent to *both*
-// current_face and target_face (there are always exactly two candidates
-// for an adjacent pair; the smaller-numbered one is picked
-// deterministically). This exists because a direct adjacent rotation can
-// still be kinematically infeasible in one specific rotation direction
-// even with unlimited lift clearance -- observed empirically: rotating
-// the same ~90 degrees one way succeeds reliably, the other way fails
-// consistently regardless of margin, i.e. a joint-limit issue, not a
-// reachability/clearance one. Routing current_face -> detour_face ->
-// target_face replaces the single problematic rotation with two
-// differently-axed ones, as a fallback the tree can try when the direct
-// path exhausts its own retries. Meaningless (left as 0) when num_steps
-// is 0 or 2, since those cases already have their own designated path.
+// Decides how many 90deg rotations reach the target face: none if it is
+// already up, one if adjacent, two through an intermediate side face if
+// opposite. A single 180deg flip has no unique axis and used to wedge
+// motion_server, hence the two-step path.
 class PlanRotationPath : public BT::SyncActionNode
 {
 public:

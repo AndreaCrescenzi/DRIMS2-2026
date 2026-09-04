@@ -16,49 +16,12 @@
 #include <behaviortree_ros2/plugins.hpp>
 #include "behaviortree_ros2/ros_node_params.hpp"
 
-// Computes the horizontal (x,y) correction needed to bring the die back
-// over a fixed target point (target_x/target_y, expressed in "base_link"
-// by default -- matching drims_dice_simulator's own spawn-bounds
-// convention -- or in whatever frame "target_frame" names), without
-// touching orientation.
+// Relative XYZ correction that brings the die from where it is now to a
+// target, so a rotation that drifted it off the play area can be corrected
+// in the same move that puts it down.
 //
-// "target_frame" (optional, default "base_link"): lets the target point be
-// specified in a frame that stays fixed regardless of how the robot base
-// is mounted on the table -- e.g. "camera_frame_floor", which (verified in
-// ur5e_cell.urdf.xacro) hangs off "table_top", not "base_link", so it does
-// NOT move when a cell's base_link mounting angle changes. Passing raw
-// target_x/target_y straight through as base_link numbers only works for
-// the one specific base_link orientation they were tuned for -- expressing
-// them in a table-anchored frame instead makes the mission's placement
-// target genuinely independent of that.
-//
-// "target_frame" only affects target_x/target_y. target_z (when given)
-// always stays a plain base_link height, regardless of target_frame --
-// the die's resting height above the table is a base_link/vertical fact,
-// not something that should shift depending on which XY frame the safe
-// zone happens to be expressed in.
-//
-// Why this exists: after picking, lifting and rotating the die to expose a
-// different face, the die is no longer necessarily above where it was
-// picked up (the pivot point of the rotation isn't the die's own center).
-// Simply moving the gripper back to a fixed "pointing down" pose to place
-// it would also undo the rotation we just carefully applied (gripper and
-// die move rigidly together while attached) -- so the placement move must
-// be a pure horizontal translation on top of whatever orientation the
-// rotate step left us at, computed from a fresh DiceIdentification call
-// after rotating.
-//
-// IMPORTANT: DiceIdentification reports current_pose in its own frame
-// (typically "world"), which is *not* the same origin as "base_link" (the
-// frame target_x/target_y are defined in). An earlier version of this node
-// subtracted target_x/y directly from current_pose's raw coordinates,
-// silently mixing the two frames -- the numbers looked plausible but the
-// die landed outside the actual delimited zone. This version explicitly
-// transforms current_pose into base_link first.
-//
-// Output is meant to feed a MoveToPose with relative_motion=true,
-// frame_id="base_link", orientation="0;0;0;1" (identity delta -- keeps
-// current orientation unchanged).
+// Only X and Y go through target_frame; target_z stays a base_link height,
+// because transforming it too once sent the die under the table.
 class ComputeXYCorrection : public BT::SyncActionNode
 {
 public:

@@ -16,29 +16,10 @@
 #include <behaviortree_ros2/plugins.hpp>
 #include "behaviortree_ros2/ros_node_params.hpp"
 
-// Chooses which world axis to tip about, based on the closing axis the
-// grasp ACTUALLY ended up with (measured from TF, not assumed).
-//
-// The tip must be parallel to the gripper's closing axis, otherwise it
-// drives that axis vertical and the face it exposes is one the fingers are
-// holding -- the camera then sees a finger instead of pips. Verified over
-// all 6 faces x 4 yaw hypotheses (derive_occlusion_correct.py):
-//
-//   grasp parallel to tip axis       -> 0/24 occluded, still injective
-//   grasp perpendicular to tip axis  -> 24/24 occluded
-//
-// Two ways to satisfy that: force the grasp to match a chosen tip axis, or
-// choose the tip axis to match whatever grasp was achieved. This node does
-// the latter, which keeps the existing, kinematically-proven grasp exactly
-// as it is -- forcing a world-fixed grasp instead turned out to be either
-// unreachable or unplannable at the same die position, and tuning it by
-// trial and error is the escalation pattern this project deliberately
-// avoids. Every one of the four candidate tip axes is equally informative
-// (each has its own verified table in ResolveDieOrientation), so picking
-// the one that matches costs nothing.
-//
-// Feed the output straight into GetTipRotation and ResolveDieOrientation,
-// so the executed tip and the table used to read it stay in step.
+// Picks the world axis most parallel to the gripper's closing axis, measured
+// from TF. The tip must be parallel to it, otherwise it drives the closing
+// axis vertical and the face it exposes is one the fingers hold (measured
+// over 6 faces x 4 yaws: parallel 0/24 occluded, perpendicular 24/24).
 class SelectTipAxis : public BT::SyncActionNode
 {
 public:

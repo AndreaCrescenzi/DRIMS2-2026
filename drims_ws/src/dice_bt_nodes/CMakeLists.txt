@@ -16,6 +16,7 @@ find_package(behaviortree_ros2 REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(moveit_msgs REQUIRED)
 
 set(dependencies
   rclcpp
@@ -24,6 +25,7 @@ set(dependencies
   geometry_msgs
   tf2_ros
   tf2
+  moveit_msgs
 )
 
 add_library(get_face_rotation SHARED
@@ -51,20 +53,25 @@ add_library(resolve_die_orientation SHARED
 )
 list(APPEND plugin_libs resolve_die_orientation)
 
-add_library(compute_canonical_placement SHARED
-  src/compute_canonical_placement.cpp
-)
-list(APPEND plugin_libs compute_canonical_placement)
-
 add_library(get_tip_rotation SHARED
   src/get_tip_rotation.cpp
 )
 list(APPEND plugin_libs get_tip_rotation)
 
-add_library(get_world_grasp_orientation SHARED
-  src/get_world_grasp_orientation.cpp
+add_library(allow_attached_contact SHARED
+  src/allow_attached_contact.cpp
 )
-list(APPEND plugin_libs get_world_grasp_orientation)
+list(APPEND plugin_libs allow_attached_contact)
+
+add_library(capture_frame_rotation SHARED
+  src/capture_frame_rotation.cpp
+)
+list(APPEND plugin_libs capture_frame_rotation)
+
+add_library(compute_relative_rotation SHARED
+  src/compute_relative_rotation.cpp
+)
+list(APPEND plugin_libs compute_relative_rotation)
 
 add_library(select_tip_axis SHARED
   src/select_tip_axis.cpp

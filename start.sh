@@ -41,6 +41,17 @@ FIX_BASHRC='grep -q "drims_ws/install/setup.bash" /home/drims/.bashrc || echo "s
 # setup_robot_connection.sh (meant for connecting to a real robot). Write
 # a minimal local-only version and activate it unconditionally so this
 # doesn't bite pure-simulation sessions too.
+# Every group on the lab LAN shares one DDS domain unless told otherwise,
+# and the container runs with --net=host, so another group's simulator
+# publishes into our /tf: symptom is a flood of "TF_OLD_DATA ignoring data
+# from the past for frame wrist_3_link ... authority undetectable" plus a
+# second robot_state_publisher on `ros2 topic info /tf --verbose` with only
+# one such process in the container. Measured: 1296 such warnings in a
+# single run on domain 0, zero after moving to our own domain. We are
+# group 5.
+ROS_DOMAIN_ID_GROUP=5
+FIX_DOMAIN="grep -q ROS_DOMAIN_ID /home/drims/.bashrc || echo 'export ROS_DOMAIN_ID=$ROS_DOMAIN_ID_GROUP' >> /home/drims/.bashrc"
+
 FIX_CYCLONE='cat > /home/drims/cyclone_config.xml <<EOF
 <CycloneDDS>
   <Domain>
@@ -78,4 +89,4 @@ grep -q "CYCLONEDDS_URI" /home/drims/.bashrc || echo "export CYCLONEDDS_URI=/hom
 # doesn't cover this on its own.
 FIX_MOTION_BUGS='sed -i "s/timeout = 3\.0/timeout = 8.0/g" /home/drims/static/drims2_ws/install/easy_motion/lib/python3.10/site-packages/easy_motion/motion_server.py'
 
-docker run -it  --group-add dialout --user drims --privileged -v /dev:/dev -v /dev/bus/usb:/dev/bus/usb --device=/dev/bus/usb --device-cgroup-rule='c 189:* rmw'  -v /etc/udev/rules.d:/etc/udev/rules.d --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --net=host --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" --volume="$(pwd)/drims_ws:/home/drims/drims_ws" --volume="$(pwd)/bags:/home/drims/bags"  --name drims2 -w /home/drims $IMAGE_NAME bash -c "$FIX_BASHRC; $FIX_CYCLONE; $FIX_MOTION_BUGS; exec bash"
+docker run -it  --group-add dialout --user drims --privileged -v /dev:/dev -v /dev/bus/usb:/dev/bus/usb --device=/dev/bus/usb --device-cgroup-rule='c 189:* rmw'  -v /etc/udev/rules.d:/etc/udev/rules.d --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --net=host --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" --volume="$(pwd)/drims_ws:/home/drims/drims_ws" --volume="$(pwd)/bags:/home/drims/bags"  --name drims2 -w /home/drims $IMAGE_NAME bash -c "$FIX_BASHRC; $FIX_CYCLONE; $FIX_DOMAIN; $FIX_MOTION_BUGS; exec bash"

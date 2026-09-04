@@ -8,24 +8,9 @@
 #include "behaviortree_cpp/bt_factory.h"
 
 // Turns a tip-axis NAME into the world-frame quaternion to command, so the
-// tip actually executed and the table ResolveDieOrientation resolves it
-// with are driven by ONE value in the tree instead of two that can drift
-// apart.
-//
-// Why that matters: the disambiguation table is derived per tip axis. All
-// four candidates (world_X/world_Y, either sign) are equally valid
-// information-theoretically -- each is injective, verified numerically --
-// so switching axis is a legitimate fix when one is unreachable from the
-// current wrist configuration (world_Y+90 was validated once, then became
-// NO_IK_SOLUTION after the home pose and die spawn position changed).
-// But editing the quaternion in the XML while leaving the table alone
-// silently yields a WRONG resolved yaw for some face pairs rather than an
-// error, which is exactly the kind of failure that is hard to spot. With
-// this node the axis name is written once and both sides follow it.
-//
-// Feed the output straight into MoveToPose with relative_motion=true and
-// frame_id="base_link" (that combination is a true extrinsic world
-// rotation in this cell).
+// executed tip and the resolution that follows are driven by one value.
+// All four axes are equally informative; which one the wrist can reach
+// depends on the configuration, so being able to switch matters.
 class GetTipRotation : public BT::SyncActionNode
 {
 public:

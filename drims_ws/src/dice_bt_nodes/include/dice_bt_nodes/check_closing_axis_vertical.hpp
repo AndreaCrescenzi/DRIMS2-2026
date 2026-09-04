@@ -17,31 +17,8 @@
 #include <behaviortree_ros2/plugins.hpp>
 #include "behaviortree_ros2/ros_node_params.hpp"
 
-// Pure-kinematics safety check for the tip-and-relook disambiguation
-// (_test_disambiguation.xml): after tipping a grasped die 90deg about a
-// FIXED world axis (necessary for the tip to carry information about the
-// die's yaw -- see resolve_ambiguous_face.hpp), the gripper's closing
-// axis can end up pointing vertically instead of horizontally for 2 of
-// the 4 yaw hypotheses (verified numerically, not by hand -- see project
-// memory: no fixed 1- or 2-step tip sequence avoids this for every
-// hypothesis, it's a structural fact of a cube having only 3 axes). A
-// vertical closing axis means one pinched face is now on top (a finger
-// covers the face a real overhead camera would need to see) and the
-// other is on the bottom (a finger would be sandwiched between the die
-// and the table at release) -- both bad.
-//
-// This does NOT need the camera or the die's own orientation at all: the
-// closing axis is tool0's own local X (see get_grasp_orientation.hpp's
-// comment -- the one axis BASE_PICK_ORIENTATION's flip and any yaw/tilt
-// leave as the gripper's closing direction), so its world direction is
-// pure forward kinematics, always available from the robot's own state.
-// Deliberately checked AFTER resolving the ambiguity (which still reads
-// the identification service directly, unaffected by finger placement in
-// this simulated ground-truth setup) and BEFORE the corrective
-// rotation/release -- see _test_disambiguation.xml's comment for why
-// resolving first and fixing release-safety second, rather than trying
-// to combine them, keeps the lookup table in resolve_ambiguous_face.hpp
-// valid unchanged.
+// Reports whether the gripper's closing axis is vertical, i.e. whether a
+// finger sits on the face the camera needs to see. Diagnostic only.
 class CheckClosingAxisVertical : public BT::SyncActionNode
 {
 public:

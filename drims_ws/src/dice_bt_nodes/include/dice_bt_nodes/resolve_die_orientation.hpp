@@ -1,50 +1,27 @@
 #pragma once
 
+#include <cmath>
 #include <map>
 #include <string>
 #include <utility>
+#include <vector>
+
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Vector3.h>
 
 #include "behaviortree_cpp/action_node.h"
 #include "behaviortree_cpp/bt_factory.h"
 
-// Resolves the true yaw of a die from a SECOND face-count observation
-// taken after tipping the die 90deg about a FIXED WORLD-frame axis while
-// rigidly grasped.
+// Resolves the die's resting yaw from two face-COUNT observations taken
+// before and after a known rotation. Never uses a reported orientation.
 //
-// Formerly ResolveAmbiguousFace, restricted to the 3 faces (1, 4, 5) whose
-// pip pattern has exact 90deg rotational symmetry. Renamed and extended to
-// all 6 faces because the real vision service never determines orientation
-// for ANY face -- it reports face number (pip count, reliable) and
-// position, but a placeholder orientation -- so every starting face is
-// "ambiguous" from a single read, not just the pip-symmetric ones.
+// Two modes: a per-tip-axis table, or -- preferred -- an analytic resolution
+// from the rotation actually measured on the gripper, which also covers the
+// arbitrary rotation the carry configuration adds. Verified: the analytic
+// form reproduces the world_Y+ and world_X+ tables exactly, 24 entries each.
 //
-// Both inputs are pure face-COUNT observations (never a reported
-// orientation), so this never needs to "cheat" by reading a true
-// orientation anywhere.
-//
-// Tables
-// ------
-// One table per tip axis, all derived numerically (never by hand -- an
-// early by-hand attempt used the grasp's own closing axis, which is
-// information-theoretically useless since it co-rotates with the very yaw
-// being resolved). All four are injective for all 6 starting faces: each
-// of the 4 yaw hypotheses lands on a DIFFERENT second face, so a single
-// tip always fully resolves it and no case ever needs a second tip.
-//
-// Having all four means an unreachable tip can be swapped for another
-// without a re-derivation: which axis the wrist can actually reach depends
-// on the cell, the home pose and where the die sits (world_Y+ was
-// validated once, then became NO_IK_SOLUTION after the home pose and spawn
-// position changed). Pass the SAME tip_axis to GetTipRotation, which emits
-// the matching quaternion -- that keeps the executed tip and the table
-// selected here driven by one value, instead of two that can silently
-// drift apart into a wrong-but-plausible resolved yaw.
-//
-// NOTE: when the target face is the geometric opposite of the current one,
-// this resolution is unnecessary -- a 180deg flip about any horizontal
-// axis reaches the opposite face regardless of yaw (verified: the
-// resulting face is yaw-independent). Only route through this node when
-// the target is NOT the opposite face.
+// A 180deg flip reaches the opposite face regardless of yaw, so this is only
+// needed when the target is not the opposite face.
 class ResolveDieOrientation : public BT::SyncActionNode
 {
 public:
@@ -60,6 +37,16 @@ public:
       // One of: world_X+, world_X-, world_Y+, world_Y- -- must be the same
       // value handed to GetTipRotation for the tip that was executed.
       BT::InputPort<std::string>("tip_axis"),
+      // The rotation the die ACTUALLY underwent between the grasp and
+      // the second reading, as a world-frame quaternion (measure it with
+      // CaptureFrameRotation + ComputeRelativeRotation). When given it
+      // replaces the per-axis tables entirely and tip_axis is ignored,
+      // which is what lets the mission insert a fixed carry
+      // configuration -- an arbitrary, run-dependent rotation no table
+      // could cover -- between picking and tipping. Verified against
+      // both derived tables (world_Y+ and world_X+): the analytic
+      // resolution reproduces all 24 entries of each exactly.
+      BT::InputPort<std::vector<double>>("total_rotation"),
       BT::OutputPort<int>("resolved_theta_deg"),
     };
   }
@@ -73,9 +60,28 @@ public:
     if (!getInput("second_face", second_face)) {
       throw BT::RuntimeError("Missing parameter [second_face]");
     }
+    std::vector<double> total;
+    if (getInput("total_rotation", total) && total.size() == 4) {
+      const tf2::Quaternion q_total(total[0], total[1], total[2], total[3]);
+      for (int theta = 0; theta < 360; theta += 90) {
+        const tf2::Quaternion q_die = (q_total * restOrientation(current_face, theta))
+          .normalized();
+        if (faceUp(q_die) == second_face) {
+          setOutput("resolved_theta_deg", theta);
+          return BT::NodeStatus::SUCCESS;
+        }
+      }
+      throw BT::RuntimeError(
+              "ResolveDieOrientation: no yaw explains (current_face=" +
+              std::to_string(current_face) + " -> second_face=" +
+              std::to_string(second_face) + ") under the measured rotation -- "
+              "the reading and the executed motion disagree.");
+    }
+
     std::string tip_axis;
     if (!getInput("tip_axis", tip_axis)) {
-      throw BT::RuntimeError("Missing parameter [tip_axis]");
+      throw BT::RuntimeError(
+              "Missing parameter [tip_axis] (and no [total_rotation] given)");
     }
 
     using Table = std::map<std::pair<int, int>, int>;
@@ -141,5 +147,58 @@ public:
 
     setOutput("resolved_theta_deg", it->second);
     return BT::NodeStatus::SUCCESS;
+  }
+
+private:
+  // FACE_NORMALS, matching drims_dice_simulator's dice_spawner.py:
+  // 1<->-Z, 6<->+Z, 2<->-X, 5<->+X, 3<->+Y, 4<->-Y.
+  static tf2::Vector3 faceNormal(int face)
+  {
+    switch (face) {
+      case 1: return tf2::Vector3(0, 0, -1);
+      case 2: return tf2::Vector3(-1, 0, 0);
+      case 3: return tf2::Vector3(0, 1, 0);
+      case 4: return tf2::Vector3(0, -1, 0);
+      case 5: return tf2::Vector3(1, 0, 0);
+      case 6: return tf2::Vector3(0, 0, 1);
+      default:
+        throw BT::RuntimeError("ResolveDieOrientation: face out of range 1..6");
+    }
+  }
+
+  // Port of dice_spawner.py's get_quaternion_from_normal.
+  static tf2::Quaternion quaternionFromNormal(const tf2::Vector3 & normal)
+  {
+    const tf2::Vector3 z_axis(0, 0, 1);
+    const tf2::Vector3 v = z_axis.cross(normal);
+    const double c = z_axis.dot(normal);
+    if (v.length() < 1e-6) {
+      return c > 0.0 ? tf2::Quaternion(0, 0, 0, 1) : tf2::Quaternion(1, 0, 0, 0);
+    }
+    return tf2::Quaternion(v.normalized(), std::acos(std::max(-1.0, std::min(1.0, c))));
+  }
+
+  // How a die rests with `face` up, spun `theta_deg` about the vertical.
+  static tf2::Quaternion restOrientation(int face, int theta_deg)
+  {
+    const tf2::Quaternion base = quaternionFromNormal(faceNormal(face)).inverse();
+    tf2::Quaternion yaw;
+    yaw.setRotation(tf2::Vector3(0, 0, 1), theta_deg * M_PI / 180.0);
+    return (yaw * base).normalized();
+  }
+
+  // Which face points most nearly straight up.
+  static int faceUp(const tf2::Quaternion & q_die)
+  {
+    int best = 1;
+    double best_z = -2.0;
+    for (int f = 1; f <= 6; ++f) {
+      const double z = tf2::quatRotate(q_die, faceNormal(f)).z();
+      if (z > best_z) {
+        best_z = z;
+        best = f;
+      }
+    }
+    return best;
   }
 };

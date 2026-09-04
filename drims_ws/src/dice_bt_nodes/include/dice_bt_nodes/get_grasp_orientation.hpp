@@ -10,65 +10,13 @@
 
 #include "behaviortree_cpp/action_node.h"
 #include "behaviortree_cpp/bt_factory.h"
-
-// C++ port of drims_homework's dice_kinematics.py (grasp_yaw_for_target):
-// given the die's current and target face, picks a grasp yaw (0 or 90 deg)
-// so the gripper fingers never pinch target_face *or its opposite* -- the
-// opposite matters because after rotating, the opposite of target_face
-// becomes the new *bottom* face (against the table); if the fingers are
-// still pinching that face, one of them ends up trapped between the die
-// and the table at release time.
+// Grasp orientation for a pick, chosen so that no finger ends up on the
+// face the camera must see or on the face that will rest on the table.
 //
-// Pure geometry, no ROS/TF needed (unlike GetFaceRotation): this only
-// needs to know which face is currently up, not the die's full continuous
-// orientation.
-//
-// Output is a full pick orientation quaternion, ready to feed MoveToPose's
-// "orientation" port for the pick move (frame_id="dice_tf"): the fixed
-// "point straight down" base orientation, additionally yawed by the
-// computed angle around dice_tf's own Z axis.
-//
-// Optional input "flip_grasp" (default false): adds 180deg to the chosen
-// yaw. A 180deg yaw flip pinches the *same* face pair (it's a rotation
-// about the same closing axis, just approached from the opposite
-// rotational direction), so it's exactly as safe w.r.t. target_face/its
-// opposite as the unflipped yaw -- but it makes the arm reach the pick
-// pose via a different wrist configuration. Exists because a specific
-// rotation direction can be kinematically blocked (joint limit) for one
-// grasp approach while the flipped approach, needing a different wrist
-// path to reach the same physical grasp, is not -- observed empirically,
-// not something the geometry alone predicts. See dice_challenge.xml's
-// MainTree, which tries the flipped grasp as a fallback before resorting
-// to a detour_face route.
-//
-// Optional input "tilt_deg": tilts the whole approach away from
-// straight-down by this many degrees, applied as a rotation about the
-// *local* X axis of the already-yawed pick orientation (post-
-// multiplication, i.e. in the gripper's own body frame, not the world's)
-// -- local X is the one axis BASE_PICK_ORIENTATION's 180deg-about-X flip
-// leaves unchanged, and by construction it stays the gripper's closing
-// axis after any yaw. Tilting about that same axis rotates the approach
-// vector while leaving the closing axis -- and therefore which face pair
-// gets pinched -- untouched: still grasps the same two side faces, just
-// diagonally instead of from straight above.
-//
-// If NOT explicitly provided, the sign is derived from geometry instead
-// of defaulting to a fixed value: the upcoming reorientation (see
-// GetFaceRotation) is itself a rotation about this SAME closing axis --
-// the die can only rotate, while staying gripped by the same two faces,
-// about the line connecting them -- so the "rotation_quat" input (pass
-// GetFaceRotation's own output straight through) directly tells us which
-// way that rotation goes. Verified empirically (see dice_challenge.xml /
-// project memory) that the natural, no-escalation-needed tilt sign is
-// the OPPOSITE of the sign of the rotation's component along the closing
-// axis: e.g. current_face=2,target_face=1 rotates +90deg about the
-// closing axis (yaw=90 there, so that's rotation_quat's y component) and
-// wants tilt=-45; current_face=1,target_face=3 rotates -90deg about its
-// closing axis (yaw=0, x component) and wants tilt=+45 -- opposite
-// rotation sign, opposite tilt sign, confirmed on both. Explicit
-// "tilt_deg" (e.g. a fallback tier deliberately trying the other sign)
-// always overrides this.
-
+// A two-finger gripper always covers one pair of opposite side faces; with a
+// fixed yaw, 2 of 6 targets would be pinched. The yaw (0 or 90deg) is picked
+// per (current, target) pair so one pick-rotate-place cycle always suffices.
+// tilt_deg tilts the approach; unset means derive the sign from the rotation.
 class GetGraspOrientation : public BT::SyncActionNode
 {
 public:

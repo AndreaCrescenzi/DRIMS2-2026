@@ -18,32 +18,12 @@
 #include <behaviortree_ros2/plugins.hpp>
 #include "behaviortree_ros2/ros_node_params.hpp"
 
-// Given the die's current and target face, outputs the *minimal* relative
-// rotation (as a quaternion) that a grasped, rigidly-attached die needs in
-// order to bring target_face's normal to where current_face's normal is
-// now — i.e. the rotation to feed straight into MoveToPose's
-// relative_motion=true "orientation" port.
+// Minimal rotation aligning the current face's normal with the target
+// face's, read from the simulator's face{N}_tf frames.
 //
-// Relies on the simulator publishing one TF frame per face (face1_tf ...
-// face6_tf, children of dice_com_tf, see drims_dice_simulator's
-// dice_spawner.py), each frame's local Z aligned with that face's outward
-// normal. Only valid in simulation for now: real vision will need its own
-// way of resolving the die's full orientation (see the DRIMS2 challenge
-// plan/memory for why that ambiguity belongs inside the identification
-// skill, not here).
-//
-// Why "minimal" matters: naively using the full transform between
-// face{current}_tf and face{target}_tf (as an earlier version of this node
-// did) also locks in whatever in-plane twist those frames happen to have
-// baked into their orientation convention — for adjacent faces this can
-// demand a ~120 degree rotation instead of the 90 degrees that's actually
-// necessary, which is measurably harder (sometimes impossible) for the
-// wrist to reach in one motion. We only care about which face ends up up,
-// not the die's final in-plane yaw, so this computes the shortest rotation
-// that aligns just the two face normals (classic axis = cross, angle =
-// acos(dot) construction), then converts that into the ref_frame-relative
-// delta the relative_motion mechanism expects (see the plan for the
-// derivation of the conjugation below).
+// Minimal, not full-frame: aligning the whole frame bakes in an arbitrary
+// twist and asks for ~120deg where 90deg suffices, which was frequently
+// unreachable. NOTE: face{N}_tf exists only in simulation.
 class GetFaceRotation : public BT::SyncActionNode
 {
 public:
