@@ -31,6 +31,11 @@ public:
       BT::InputPort<int>("target_face"),
       BT::InputPort<bool>("flip_grasp"),
       BT::InputPort<double>("tilt_deg"),
+      // Explicit grasp quaternion, "x;y;z;w" relative to dice_tf, used
+      // instead of the derived one. A zero quaternion (the default) means
+      // "derive it": no valid rotation has zero norm, so it doubles as the
+      // sentinel and needs no separate enable flag.
+      BT::InputPort<std::vector<double>>("orientation_override"),
       BT::InputPort<std::vector<double>>("rotation_quat"),
       BT::InputPort<double>("yaw_offset_deg"),
       BT::OutputPort<std::vector<double>>("pick_orientation"),
@@ -112,6 +117,16 @@ public:
       // Post-multiply: apply in the gripper's own (already-yawed) local
       // frame, rotating about its closing axis rather than the world's.
       pick_orientation = (pick_orientation * tilt_q).normalized();
+    }
+
+    std::vector<double> override_q;
+    if (getInput("orientation_override", override_q) && override_q.size() == 4) {
+      const double norm2 = override_q[0] * override_q[0] + override_q[1] * override_q[1] +
+        override_q[2] * override_q[2] + override_q[3] * override_q[3];
+      if (norm2 > 0.25) {
+        pick_orientation = tf2::Quaternion(
+          override_q[0], override_q[1], override_q[2], override_q[3]).normalized();
+      }
     }
 
     setOutput(
